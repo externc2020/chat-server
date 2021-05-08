@@ -3,6 +3,11 @@ from aiohttp import web
 import sqlalchemy as sa
 from sqlalchemy.orm import sessionmaker
 from entities import User, AccessToken, RefreshToken
+import logging
+import sys
+import ssl
+
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
 engine = sa.create_engine('sqlite:///chat.db', echo=False)
 
@@ -15,58 +20,58 @@ def get_authenticated_user(access_token):
 
 def auth_middleware_factory():
     @web.middleware
-    async def auth_middleware(request, handler):
-        access_token = request.headers.get("Authorization").replace("Bearer ", "")
-        user = get_authenticated_user(access_token)
-        if user:
-            resp = await handler(user, request)
+    async def auth_middleware(request: web.Request, handler):
+        if "pubkey" in request.cookies:
+            request.user = request.cookies["pubkey"]
         else:
-            resp = await handler(request)
-        return resp
+            request.user = None
+        return await handler(request)
     return auth_middleware
 
 
 app = web.Application(
     middlewares=[
         auth_middleware_factory()
-    ]
+    ],
 )
 
 
-users = set()
+users = {
 
-
-
+}
 
 
 async def websocket_handler(request):
-    print("connected")
+    user = request.user
+    if not user:
+        return web.HTTPForbidden()
+
+    logging.info("[%s] Connected", user)
+
     ws = web.WebSocketResponse()
 
-    users.add(ws)
+    users[user] = ws
 
     await ws.prepare(request)
 
     async for msg in ws:
-        if msg.type == aiohttp.WSMsgType.TEXT:
-            if msg.data == 'exit':
-                await ws.close()
-                users.remove(ws)
-            else:
-                print(msg.data)
-                dead_users = []
-                for u in users:
-                    if u != ws:
-                        try:
-                            await u.send_str(msg.data)
-                        except:
-                            dead_users.append(u)
-                for u in dead_users:
-                    users.remove(u)
-        elif msg.type == aiohttp.WSMsgType.ERROR:
-            print('ws connection closed with exception %s' % ws.exception())
+        if msg.type == aiohttp.WSMsgType.BINARY:
+            data = msg.data
+            # decode data
+            # chunk type, routing, payload, room
+            logging.info("[%s] --> %r", user, data)
 
-    print('websocket connection closed')
+            dead_users = []
+            for pubkey, u in users.items():
+                if u != ws:
+                    try:
+                        await u.send(data)
+                    except:
+                        dead_users.append(pubkey)
+            for u in dead_users:
+                users.pop(u, None)
+
+    logging.info("[%s] Disconnected", user)
     return ws
 
 
@@ -128,13 +133,26 @@ async def update_nickname(user, request):
     session.commit()
 
 
+async def join_handler():
+    pass
+
+
+async def chunk_handler():
+    pass
+
 
 app.add_routes([
     web.get('/hello', hello),
     web.get('/ws', websocket_handler),
+    web.get('/join', join_handler),
+    web.get('/chunks', chunk_handler),
     web.get("/history", history_handler),
-    web.post("/token", reception_handler),
-    web.put("/nickname", update_nickname),
 ])
+
+# ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+# ctx.load_cert_chain('/Users/yy/tmp/example.com.pem', '/Users/yy/tmp/example.com-key.pem')
+
+
+# web.run_app(app, ssl_context=ctx)
 
 web.run_app(app)

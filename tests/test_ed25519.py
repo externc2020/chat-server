@@ -26,3 +26,30 @@ def test_1():
     # Will raise nacl.exceptions.BadSignatureError if the signature check fails
     verified = verify_key.verify(signed)
     print(verified)
+
+
+def test_2():
+    # Ed25519 is an elliptic curve signing algorithm using EdDSA and Curve25519.
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, PrivateFormat, NoEncryption
+    private_key = Ed25519PrivateKey.generate()
+    print(private_key.private_bytes(
+        encoding=Encoding.PEM,
+        format=PrivateFormat.OpenSSH,
+        encryption_algorithm=NoEncryption()
+    ).decode())
+    signature = private_key.sign(b"my authenticated message")
+    print(signature.hex())
+    public_key = private_key.public_key()
+    print(public_key.public_bytes(
+        encoding=Encoding.OpenSSH,
+        format=PublicFormat.OpenSSH
+    ).decode())
+    # Raises InvalidSignature if verification fails
+    public_key.verify(signature, b"my authenticated message")
+
+
+def test_3():
+    # admin sign A pubkey with pubkey + expiry_time
+    # message, signature
+    pass
